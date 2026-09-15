@@ -14,6 +14,8 @@ class Store {
   private past: AppState[] = []
   private future: AppState[] = []
   private suppressHistory = false
+  /** 聚焦编辑时拍下的待定旧状态；仅当随后确实发生修改才提升为历史步 */
+  private pending: AppState | null = null
 
   async init() {
     if (this.ready) return
@@ -42,53 +44,75 @@ class Store {
     })
   }
 
-  /** 带撤销快照地执行一次修改 */
+  /** 离散修改（增删行、载入示例、清空等）：立即记一个历史步 */
   commit(fn: () => void) {
     if (this.suppressHistory) {
       fn()
       return
     }
-    this.pushSnapshot()
+    this.pending = null
+    this.pushSnapshot(clone(this.state))
     this.future = []
     fn()
   }
 
-  /** 编辑开始前拍快照（输入框聚焦时）；与上一快照内容相同则不重复入栈 */
+  /** 输入框聚焦时记下旧状态；切换到新字段前先结算上一笔；没有改动则不产生撤销步 */
   snapshot() {
-    this.pushSnapshot()
-    this.future = []
+    if (this.pending && JSON.stringify(this.pending) !== JSON.stringify(this.state)) {
+      this.pushSnapshot(this.pending)
+      this.future = []
+    }
+    this.pending = clone(this.state)
   }
 
-  private pushSnapshot() {
-    const cur = JSON.stringify(this.state)
+  private pushSnapshot(snap: AppState) {
     const last = this.past[this.past.length - 1]
-    if (last && JSON.stringify(last) === cur) return
-    this.past.push(clone(this.state))
+    if (last && JSON.stringify(last) === JSON.stringify(snap)) return
+    this.past.push(snap)
     if (this.past.length > MAX_HISTORY) this.past.shift()
   }
 
-  /** 拖动滑块等高频更新：不入撤销栈但仍持久化 */
+  /** 输入框键入、拖动滑块等高频更新：配合聚焦时的待定快照，不逐条入栈 */
   setSilently(fn: () => void) {
+    const before = this.pending
     this.suppressHistory = true
     try {
       fn()
     } finally {
       this.suppressHistory = false
     }
+    // 仅当聚焦后确有改动时，才把编辑前状态提升为一个历史步
+    if (before && JSON.stringify(before) !== JSON.stringify(this.state)) {
+      this.pushSnapshot(before)
+      this.future = []
+      this.pending = null
+    }
   }
 
   undo() {
     const prev = this.past.pop()
     if (!prev) return
+    this.pending = null
     this.future.push(clone(this.state))
-    this.setSilently(() => Object.assign(this.state, prev))
+    this.suppressHistory = true
+    try {
+      Object.assign(this.state, prev)
+    } finally {
+      this.suppressHistory = false
+    }
   }
 
   redo() {
     const next = this.future.pop()
     if (!next) return
+    this.pending = null
     this.past.push(clone(this.state))
-    this.setSilently(() => Object.assign(this.state, next))
+    this.suppressHistory = true
+    try {
+      Object.assign(this.state, next)
+    } finally {
+      this.suppressHistory = false
+    }
   }
 
   get canUndo() {

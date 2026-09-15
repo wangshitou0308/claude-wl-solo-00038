@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { store, usePlan } from './lib/store'
 import { evaluateGroup } from './lib/planner'
 import { fmtClock } from './lib/tide'
@@ -89,18 +89,31 @@ function confirmReset() {
   if (window.confirm('确定清空全部本地数据？此操作可用撤销恢复。')) store.resetAll()
 }
 
-onMounted(() => {
-  window.addEventListener('keydown', (e) => {
-    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z' && !e.shiftKey) {
-      e.preventDefault()
-      store.undo()
-    }
-    if ((e.ctrlKey || e.metaKey) && (e.key.toLowerCase() === 'y' || (e.shiftKey && e.key.toLowerCase() === 'z'))) {
-      e.preventDefault()
-      store.redo()
-    }
-  })
-})
+/** 是否处在可编辑元素中：交给浏览器原生撤销，不做数据级撤销 */
+function inEditable(el: EventTarget | null): boolean {
+  const t = el as HTMLElement | null
+  if (!t) return false
+  const tag = t.tagName
+  return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || t.isContentEditable
+}
+
+function onKeyDown(e: KeyboardEvent) {
+  if (!(e.ctrlKey || e.metaKey)) return
+  const key = e.key.toLowerCase()
+  const undo = key === 'z' && !e.shiftKey
+  const redo = key === 'y' || (key === 'z' && e.shiftKey)
+  if (!undo && !redo) return
+  // 按住连发只处理第一下，避免一次按住连退多步
+  if (e.repeat) return
+  // 输入框/文本域内不拦截，交给浏览器原生撤销
+  if (inEditable(e.target)) return
+  e.preventDefault()
+  if (undo) store.undo()
+  else store.redo()
+}
+
+onMounted(() => window.addEventListener('keydown', onKeyDown))
+onUnmounted(() => window.removeEventListener('keydown', onKeyDown))
 </script>
 
 <template>

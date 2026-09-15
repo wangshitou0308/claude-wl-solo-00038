@@ -7,6 +7,7 @@
     "dev": "vite",
     "build": "vue-tsc --noEmit && vite build",
     "check": "esbuild scripts/check.ts --bundle --platform=node --format=esm --outfile=node_modules/.check.mjs && node node_modules/.check.mjs",
+    "check:history": "esbuild scripts/check-history.ts --bundle --platform=node --format=esm --outfile=node_modules/.check-history.mjs && node node_modules/.check-history.mjs",
     "preview": "vite preview"
   },
   "dependencies": {
